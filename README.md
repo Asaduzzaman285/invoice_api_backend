@@ -367,3 +367,150 @@ TRUNCATE members;
 TRUNCATE success_stories;
 TRUNCATE product;
 ```
+for php version compatability issue : 
+InvoiceAPI Laravel Setup Guide
+
+Server: cPanel / SSH
+Subdomain: invoiceapi.wineds.com
+PHP version needed: 8.1
+
+1. Set Specific PHP Version for Subdomain/Directory
+
+Option 1: Using .htaccess in the root directory of subdomain
+
+# Force PHP 8.1 for this directory
+<IfModule ea-php81>
+    AddHandler application/x-httpd-ea-php81 .php
+</IfModule>
+
+
+Option 2: Using .user.ini in the subdomain root
+
+; Force PHP 8.1
+; (This works if MultiPHP INI editor is not available)
+
+
+✅ This ensures the subdomain runs PHP 8.1 even if the system default is lower.
+
+2. Clone Git Repository and Initialize Git
+cd ~
+git clone https://github.com/Asaduzzaman285/wintel_api_backend.git invoiceapi.wineds.com
+cd invoiceapi.wineds.com
+git pull origin main
+
+3. Copy Environment File
+cp .env.example .env
+
+
+Edit .env and set your database credentials and other environment variables.
+
+DB_CONNECTION=mysql
+DB_HOST=localhost
+DB_PORT=3306
+DB_DATABASE=winedsco_invoice
+DB_USERNAME=winedsco_invoice
+DB_PASSWORD=paSSSss1$23!!
+
+4. Install Composer (if not installed)
+# Download Composer installer
+curl -sS https://getcomposer.org/installer -o composer-setup.php
+
+# Install locally
+/opt/cpanel/ea-php81/root/usr/bin/php composer-setup.php --install-dir=. --filename=composer
+
+# Use composer
+/opt/cpanel/ea-php81/root/usr/bin/php composer install --ignore-platform-req=ext-sockets
+
+
+⚠️ If proc_open is disabled in PHP, temporarily enable it using:
+
+/opt/cpanel/ea-php81/root/usr/bin/php -d disable_functions="" composer install
+
+5. Generate Laravel App Key
+/opt/cpanel/ea-php81/root/usr/bin/php -d disable_functions="" artisan key:generate
+
+6. Run Migrations
+/opt/cpanel/ea-php81/root/usr/bin/php -d disable_functions="" artisan migrate
+
+
+Make sure .env has correct DB credentials.
+
+7. Seed Roles, Permissions, and Users
+
+Connect to MySQL using your cPanel credentials or phpMyAdmin:
+
+-- Insert roles
+INSERT INTO roles (name, guard_name, created_at, updated_at)
+VALUES 
+  ('admin', 'web', NOW(), NOW()),
+  ('user', 'web', NOW(), NOW());
+
+-- Insert permissions
+INSERT INTO permissions (name, guard_name, created_at, updated_at)
+VALUES 
+  ('manage users', 'web', NOW(), NOW());
+
+-- Assign permission to admin role
+INSERT INTO role_has_permissions (permission_id, role_id)
+SELECT p.id, r.id
+FROM permissions p, roles r
+WHERE p.name = 'manage users' AND r.name = 'admin';
+
+-- Create admin user
+INSERT INTO users (name, email, password, created_at, updated_at)
+VALUES 
+  ('Admin', 'admin@gmail.com', 
+   '$2y$10$wHnQwQwQwQwQwQwQwQwQwOQwQwQwQwQwQwQwQwQwQwQwQwQwQwQwQwQwQwQw', -- bcrypt for Password123!
+   NOW(), NOW());
+
+-- Create demo user
+INSERT INTO users (name, email, password, created_at, updated_at)
+VALUES 
+  ('Demo User', 'user@gmail.com', 
+   '$2y$10$wHnQwQwQwQwQwQwQwQwQwOQwQwQwQwQwQwQwQwQwQwQwQwQwQwQwQwQwQwQw', -- bcrypt for Password123!
+   NOW(), NOW());
+
+-- Assign roles to users
+INSERT INTO model_has_roles (role_id, model_type, model_id)
+SELECT r.id, 'App\\Models\\User', u.id
+FROM roles r, users u
+WHERE r.name = 'admin' AND u.email = 'admin@gmail.com';
+
+INSERT INTO model_has_roles (role_id, model_type, model_id)
+SELECT r.id, 'App\\Models\\User', u.id
+FROM roles r, users u
+WHERE r.name = 'user' AND u.email = 'user@gmail.com';
+
+8. Run Passport Installation
+/opt/cpanel/ea-php81/root/usr/bin/php artisan passport:install
+
+
+This will create:
+
+Personal access client
+
+Password grant client
+
+Note the client IDs and secrets for API usage.
+
+9. Optional: Add Soft Deletes Columns
+ALTER TABLE roles ADD COLUMN deleted_at TIMESTAMP NULL DEFAULT NULL;
+ALTER TABLE model_has_roles ADD COLUMN deleted_at TIMESTAMP NULL DEFAULT NULL;
+ALTER TABLE role_has_permissions ADD COLUMN deleted_at TIMESTAMP NULL DEFAULT NULL;
+ALTER TABLE permissions ADD COLUMN deleted_at TIMESTAMP NULL DEFAULT NULL;
+
+10. Serve Laravel App (Development Only)
+/opt/cpanel/ea-php81/root/usr/bin/php -d disable_functions="" artisan serve
+
+
+⚠️ For production, set up Apache/Nginx with .htaccess or public_html routing.
+
+✅ cPanel DB Credentials
+
+User: winedsco_invoice
+
+Password: paSSSss1$23!!
+
+Database: winedsco_invoice
+
+This guide ensures you can reuse it next time without repeating commands or troubleshooting PHP version issues.

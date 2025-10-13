@@ -11,7 +11,56 @@ use App\Http\Controllers\CommonController;
 use App\Http\Controllers\SMS\SmsController;
 use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\Dashboard\DashboardController;
+use App\Http\Controllers\BankController;
+use App\Http\Controllers\BankAccountController;
+use App\Http\Controllers\CompanyInfoController;
+use App\Http\Controllers\ApplicationController;
+use App\Http\Controllers\PortalRoleController;
+use App\Http\Controllers\UsersController;
+// -----------------------
+// Banks CRUD
+// -----------------------
+Route::get('/banks', [BankController::class, 'index']);      // List all banks
+Route::get('/banks/{id}', [BankController::class, 'show']);  // Show single bank
+Route::post('/banks', [BankController::class, 'store']);     // Create bank
+Route::put('/banks/{id}', [BankController::class, 'update']); // Update bank
+Route::delete('/banks/{id}', [BankController::class, 'destroy']); // Delete bank
 
+// -----------------------
+// Bank Accounts CRUD
+// -----------------------
+Route::get('/bank-accounts', [BankAccountController::class, 'index']);
+Route::get('/bank-accounts/{id}', [BankAccountController::class, 'show']);
+Route::post('/bank-accounts', [BankAccountController::class, 'store']);
+Route::put('/bank-accounts/{id}', [BankAccountController::class, 'update']);
+Route::delete('/bank-accounts/{id}', [BankAccountController::class, 'destroy']);
+
+// -----------------------
+// Company Info CRUD
+// -----------------------
+Route::get('/companies', [CompanyInfoController::class, 'index']);
+Route::get('/companies/{id}', [CompanyInfoController::class, 'show']);
+Route::post('/companies', [CompanyInfoController::class, 'store']);
+Route::put('/companies/{id}', [CompanyInfoController::class, 'update']);
+Route::delete('/companies/{id}', [CompanyInfoController::class, 'destroy']);
+
+// -----------------------
+// Applications CRUD
+// -----------------------
+Route::get('/applications', [ApplicationController::class, 'index']);
+Route::get('/applications/{id}', [ApplicationController::class, 'show']);
+Route::post('/applications', [ApplicationController::class, 'store']);
+Route::put('/applications/{id}', [ApplicationController::class, 'update']);
+Route::delete('/applications/{id}', [ApplicationController::class, 'destroy']);
+
+// -----------------------
+// Portal Roles CRUD
+// -----------------------
+Route::get('/roles', [PortalRoleController::class, 'index']);
+Route::get('/roles/{id}', [PortalRoleController::class, 'show']);
+Route::post('/roles', [PortalRoleController::class, 'store']);
+Route::put('/roles/{id}', [PortalRoleController::class, 'update']);
+Route::delete('/roles/{id}', [PortalRoleController::class, 'destroy']);
 
 // ========Auth===========
 // ========Auth===========
@@ -93,7 +142,7 @@ Route::get('send-sms', [SmsController::class, 'sendSms']);
 Route::group(['prefix' => 'v1/dashboard', 'middleware' => 'auth:api'],function(){
     Route::get('dashboard-data', [DashboardController::class, 'getDashboardData']);
 });
-
+Route::get('index/{id}', [UsersController::class, 'index']);
 
 // Cart Routes
 Route::group(['prefix' => 'v1/cart', 'middleware' => 'auth:api'],function(){

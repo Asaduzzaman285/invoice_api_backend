@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 
 class User extends Authenticatable {
-    use HasApiTokens, HasFactory, Notifiable;
+    use HasApiTokens, HasFactory, Notifiable, \Spatie\Permission\Traits\HasRoles;
 
     protected $table = 'users';
 
@@ -48,5 +48,5 @@ class User extends Authenticatable {
     public function roles() {
         return $this->belongsToMany( Role_c::class, 'model_has_roles', 'model_id', 'role_id' )->wherePivotNull( 'deleted_at' );
     }
-   
+
 }

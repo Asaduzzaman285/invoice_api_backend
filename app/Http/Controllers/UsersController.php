@@ -20,178 +20,146 @@ class UsersController extends Controller
 {
     use ApiResponser;
     use Queries;
-
-    public function getAllUsers_p(Request $request)
+    public function index($id)
     {
-        [$sort_field, $sort_order] = processOrderBy('users.id', 'ASC', $request->sort['table'] ?? null, $request->sort['column'] ?? null,  $request->sort['order'] ?? null);
+        $user = DB::table('users')->where('id', $id)->first();
 
-        $data = User::when(isset($sort_field), function ($query) use ($sort_field, $sort_order) {
-                    return $query
-                    ->select('users.*')
-                    ->orderBy($sort_field, $sort_order);
-                })
-                ->when(request()->filled('search'), function ($query) {
-                    $query->where('users.name', 'like', "%".request('search')."%")
-                    ->orWhere('users.email', 'like', "%".request('search')."%")
-                    ;
-                })
-                ->with('roles:id,name')
-                ->paginate(PaginationEnum::$DEFAULT);
+        if (!$user) {
+            return $this->set_response(null, 404, 'error', ['User not found']);
+        }
+
+        // Roles
+        $roles = DB::table('model_has_roles')
+            ->join('roles', 'model_has_roles.role_id', '=', 'roles.id')
+            ->where('model_has_roles.model_type', 'App\Models\User')
+            ->where('model_has_roles.model_id', $id)
+            ->pluck('roles.name')
+            ->toArray();
+
+        // App and portal role
+        $app = DB::table('application')->where('id', $user->app_id)->first();
+        $portal_role = DB::table('portal_role')->where('id', $user->portal_role_id)->first();
 
         $data = [
-            'paginator' => getFormattedPaginatedArray($data),
-            'data' => $data->items(),
+            'user' => $user,
+            'roles' => $roles,
+            'app_name' => $app->name ?? null,
+            'portal_role' => $portal_role->role_name ?? null,
         ];
-        return $this->set_response($data,  200,'success', ['Users data'], $request->merge(['log_type_id' => 5,'segment'=>'User','pagename'=>'User','pageurl'=>'/access-control/users']));
+
+        return $this->set_response($data, 200, 'success', ['User and role data']);
     }
 
-
+    // Get all users
     public function getAllUsers(Request $request)
     {
-        $data = User::orderBy('name')->get();
-        return $this->set_response($data,  200,'success', ['All Users data']);
+        $users = DB::table('users')->orderBy('name')->get();
+
+        return $this->set_response($users, 200, 'success', ['All Users data']);
     }
 
-    public function getUser(Request $request)
+    // Create new user
+    public function createUser(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'id' => 'required|numeric|exists:users,id',
+            'name' => 'required|string',
+            'email' => 'required|email|unique:users,email',
+            'password' => 'required|string|min:8',
+            'app_id' => 'nullable|exists:application,id',
+            'portal_role_id' => 'nullable|exists:portal_role,id',
+            'role_ids' => 'required|array|min:1',
         ]);
 
         if ($validator->fails()) {
             return $this->set_response(null, 422, 'error', $validator->errors()->all());
         }
-        $user = User::find($request->id);
-        $user_roles_permissions = $this->user_roles_permissions_q();
-
-        $user['roles']=$user_roles_permissions->where('user_id', $user->id)->unique('role_id')->values();
-        $user['permissions']=$user_roles_permissions->where('user_id', $user->id)->pluck('permission_name')->unique()->toArray();
-
-        return $this->set_response($user, 200,'success',  ['User data']);
-    }
-
-    public function createUser(UserCreateRequest $request)
-    {
-        $input = $request->all();
-
-        $input['password'] = bcrypt($input['password']);
-        $input['created_by'] = Auth::user()->id;
-
-        $input = Arr::except($input,array('roles'));
-
 
         DB::beginTransaction();
         try {
-            $user = User::create($input);
-            foreach ($request->role_ids as $value)
-            {
-                DB::table('model_has_roles')->insert(
-                    [
-                        'role_id' => $value,
-                        'model_type' => 'App\Models\User',
-                        'model_id' => $user->id,
-                    ]
-                );
+            $userId = DB::table('users')->insertGetId([
+                'name' => $request->name,
+                'email' => $request->email,
+                'password' => bcrypt($request->password),
+                'app_id' => $request->app_id,
+                'portal_role_id' => $request->portal_role_id,
+                'role_info' => json_encode($request->role_ids),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            foreach ($request->role_ids as $roleId) {
+                DB::table('model_has_roles')->insert([
+                    'role_id' => $roleId,
+                    'model_type' => 'App\Models\User',
+                    'model_id' => $userId,
+                ]);
             }
+
             DB::commit();
-            return $this->set_response($user, 200,'success', ['User created successfully']);
+            return $this->set_response(['id' => $userId], 200, 'success', ['User created successfully']);
         } catch (\Exception $e) {
-            DB::rollback();
-            $logMessage = formatCommonErrorLogMessage($e);
-            writeToLog($logMessage, 'error');
-            return $this->set_response(null,  422,'error', ['Something went wrong. Please try again later!']);
+            DB::rollBack();
+            return $this->set_response(null, 422, 'error', ['Something went wrong: ' . $e->getMessage()]);
         }
     }
 
-
-
+    // Update user
     public function updateUser(Request $request)
     {
         $validator = Validator::make($request->all(), [
-                'id' => 'required|numeric|exists:users,id',
-                // 'email' => 'required|email|unique:users,email,'.$request->id,
-                'role_ids' => 'required|array|min:1',
-                'password' => [
-                        'nullable',
-                        'string',
-                        'min:8',             // must be at least 8 characters in length
-                        'regex:/[a-z]/',      // must contain at least one lowercase letter
-                        'regex:/[A-Z]/',      // must contain at least one uppercase letter
-                        'regex:/[0-9]/',      // must contain at least one digit
-                        'regex:/[@$!%*#?&]/', // must contain a special character
-                    ],
-                'joining_date' => 'nullable|date',
-            ],
-            [
-                'password.regex' => "Password must contain at least one upper case, lower case letter and one number and one special character."
-            ]
-        );
+            'id' => 'required|exists:users,id',
+            'name' => 'sometimes|string',
+            'email' => 'sometimes|email|unique:users,email,' . $request->id,
+            'password' => 'nullable|string|min:8',
+            'app_id' => 'nullable|exists:application,id',
+            'portal_role_id' => 'nullable|exists:portal_role,id',
+            'role_ids' => 'required|array|min:1',
+        ]);
 
         if ($validator->fails()) {
             return $this->set_response(null, 422, 'error', $validator->errors()->all());
         }
 
-        $input = $request->all();
-
-        if(!empty($input['password'])){
-
-            $input['password'] = bcrypt($input['password']);
-
-        }else{
-            $input = Arr::except($input,array('password'));
-        }
-
-        $input = Arr::except($input,array('roles'));
-
-        $user = User::find($request->id);
-        $input['updated_by']=$user->id;
-
-
         DB::beginTransaction();
         try {
-            $user->update($input);
-            DB::table('model_has_roles')->where('model_id', $request->id)->delete();
-            foreach ($request->role_ids as $value)
-            {
-                DB::table('model_has_roles')->insert(
-                    [
-                        'role_id' => $value,
-                        'model_type' => 'App\Models\User',
-                        'model_id' => $request->id,
-                    ]
-                );
+            $data = $request->only(['name', 'email', 'app_id', 'portal_role_id']);
+            if ($request->filled('password')) {
+                $data['password'] = bcrypt($request->password);
             }
-            if(isset($input['status']) && $input['status']==0)
-            {
-                OauthAccessToken::where('user_id', $request->id)->update(['expires_at' => getNow(), 'revoked' => 1]);
+            $data['role_info'] = json_encode($request->role_ids);
+            $data['updated_at'] = now();
+
+            DB::table('users')->where('id', $request->id)->update($data);
+
+            // Update roles
+            DB::table('model_has_roles')->where('model_id', $request->id)->delete();
+            foreach ($request->role_ids as $roleId) {
+                DB::table('model_has_roles')->insert([
+                    'role_id' => $roleId,
+                    'model_type' => 'App\Models\User',
+                    'model_id' => $request->id,
+                ]);
             }
 
             DB::commit();
-            return $this->set_response($user, 200,'success', ['User updated successfully']);
+            return $this->set_response(null, 200, 'success', ['User updated successfully']);
         } catch (\Exception $e) {
-            DB::rollback();
-            $logMessage = formatCommonErrorLogMessage($e);
-            writeToLog($logMessage, 'error');
-            return $this->set_response(null,  422,'error', ['Something went wrong. Please try again later!']);
+            DB::rollBack();
+            return $this->set_response(null, 422, 'error', ['Something went wrong: ' . $e->getMessage()]);
         }
     }
 
+    // Delete user
+    public function deleteUser($id)
+    {
+        if (!DB::table('users')->where('id', $id)->exists()) {
+            return $this->set_response(null, 404, 'error', ['User not found']);
+        }
 
-    // public function deleteUser($userId)
-    // {
-    //     if (DB::table('users')->where('id', $userId)->count()==0) {
-    //         return $this->set_response(null, 422, 'failed', ["User not found!"]);
-    //     }
-    //     User::find($userId)->delete();
-    //     return $this->set_response(null,  200,'success', ['User deleted successfully']);
-    // }
+        DB::table('users')->where('id', $id)->delete();
+        DB::table('model_has_roles')->where('model_id', $id)->delete();
 
-
-    public function filterData( Request $request ) {
-        $role_list = Role::select('id as value', 'name as label')->get();
-        $filter = [
-            'role_list' => $role_list,
-        ];
-        return $this->set_response( $filter,  200, 'success', [ 'filter list' ] );
+        return $this->set_response(null, 200, 'success', ['User deleted successfully']);
     }
 }
+

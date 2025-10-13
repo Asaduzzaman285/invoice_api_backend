@@ -16,17 +16,17 @@ use App\Http\Controllers\CorporateServiceController;
 // =======super admin==============
 
 Route::group([
-    'prefix' => 'v1',
-    'middleware' => 'auth:api',
+    'prefix' => 'v1'
+
 ], function () {
     // users
-    Route::post('getAllUsers_p', [UsersController::class, 'getAllUsers_p'])->middleware('CheckPermission:user list');
-    Route::post('getAllUsers', [UsersController::class, 'getAllUsers'])->middleware('CheckPermission:user list');
+    Route::post('getAllUsers_p', [UsersController::class, 'getAllUsers_p']);
+    Route::post('getAllUsers', [UsersController::class, 'getAllUsers']);
     Route::post('getUser', [UsersController::class, 'getUser']);
     // ->middleware('CheckPermission:user data')
-    Route::post('createUser', [UsersController::class, 'createUser'])->middleware('CheckPermission:user create');
-    Route::post('updateUser', [UsersController::class, 'updateUser'])->middleware('CheckPermission:user update');
-    Route::post('filter-data', [UsersController::class, 'filterData'])->middleware('CheckPermission:user list');
+    Route::post('createUser', [UsersController::class, 'createUser']);
+    Route::post('updateUser', [UsersController::class, 'updateUser']);
+
 });
 
 
