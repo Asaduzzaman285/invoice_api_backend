@@ -17,6 +17,7 @@ use App\Http\Controllers\CompanyInfoController;
 use App\Http\Controllers\ApplicationController;
 use App\Http\Controllers\PortalRoleController;
 use App\Http\Controllers\UsersController;
+use App\Http\Controllers\Invoice2Controller;
 // -----------------------
 // Banks CRUD
 // -----------------------
@@ -142,7 +143,9 @@ Route::get('send-sms', [SmsController::class, 'sendSms']);
 Route::group(['prefix' => 'v1/dashboard', 'middleware' => 'auth:api'],function(){
     Route::get('dashboard-data', [DashboardController::class, 'getDashboardData']);
 });
-Route::get('index/{id}', [UsersController::class, 'index']);
+// Route::get('index/{id}', [UsersController::class, 'index']);
+Route::get('/index/{id?}', [UsersController::class, 'index']);
+
 
 // Cart Routes
 Route::group(['prefix' => 'v1/cart', 'middleware' => 'auth:api'],function(){
@@ -153,3 +156,18 @@ Route::group(['prefix' => 'v1/cart', 'middleware' => 'auth:api'],function(){
 
     Route::get('payment-methods', [CartController::class, 'getPaymentMethodsData']);
 });
+Route::get('get-support-data', [Invoice2Controller::class, 'getsupportdata']);
+Route::post('get-support-data', [Invoice2Controller::class, 'getsupportdata']);
+
+
+Route::get('/invoices', [Invoice2Controller::class, 'index']);
+Route::post('/invoices', [Invoice2Controller::class, 'store']);
+Route::get('/invoices/{id}', [Invoice2Controller::class, 'show']);
+Route::put('/invoices/{id}', [Invoice2Controller::class, 'update']); // ADD THIS
+Route::delete('/invoices/{id}', [Invoice2Controller::class, 'destroy']);
+
+// Bank accounts route (ADD THIS - your frontend needs it!)
+Route::get('/bank-accounts', [Invoice2Controller::class, 'getBankAccounts']);
+
+// Support data route (ADD THIS - your frontend needs it!)
+Route::get('/get-support-data', [Invoice2Controller::class, 'getsupportdata']);

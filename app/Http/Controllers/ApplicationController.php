@@ -8,9 +8,9 @@ use Illuminate\Support\Facades\DB;
 class ApplicationController extends Controller
 {
     public function store(Request $request) {
-        DB::insert('INSERT INTO application (name, description) VALUES (?, ?)', [
-            $request->name,
-            $request->description
+        DB::insert('INSERT INTO application (name) VALUES (?)', [
+            $request->name
+
         ]);
         return response()->json(['message' => 'Application created']);
     }
@@ -26,9 +26,8 @@ class ApplicationController extends Controller
     }
 
     public function update(Request $request, $id) {
-        DB::update('UPDATE application SET name = ?, description = ? WHERE id = ?', [
+        DB::update('UPDATE application SET name = ? WHERE id = ?', [
             $request->name,
-            $request->description,
             $id
         ]);
         return response()->json(['message' => 'Application updated']);

@@ -20,15 +20,18 @@ class UsersController extends Controller
 {
     use ApiResponser;
     use Queries;
-    public function index($id)
-    {
+
+    public function index($id = null)
+{
+    if ($id) {
+        // 🔹 Fetch single user
         $user = DB::table('users')->where('id', $id)->first();
 
         if (!$user) {
             return $this->set_response(null, 404, 'error', ['User not found']);
         }
 
-        // Roles
+        // 🔹 Fetch roles assigned to this user
         $roles = DB::table('model_has_roles')
             ->join('roles', 'model_has_roles.role_id', '=', 'roles.id')
             ->where('model_has_roles.model_type', 'App\Models\User')
@@ -36,7 +39,23 @@ class UsersController extends Controller
             ->pluck('roles.name')
             ->toArray();
 
-        // App and portal role
+        // 🔹 Role info (id, name, permissions)
+        $role_info = DB::table('roles')
+            ->leftJoin('role_has_permissions', 'roles.id', '=', 'role_has_permissions.role_id')
+            ->leftJoin('permissions', 'role_has_permissions.permission_id', '=', 'permissions.id')
+            ->whereIn('roles.name', $roles)
+            ->select(
+                'roles.id as role_id',
+                'roles.name as role_name',
+                DB::raw('GROUP_CONCAT(permissions.name) as permissions')
+            )
+            ->groupBy('roles.id', 'roles.name')
+            ->get();
+
+        // 🔹 Attach role_info to user
+        $user->role_info = $role_info;
+
+        // 🔹 Add application and portal role details
         $app = DB::table('application')->where('id', $user->app_id)->first();
         $portal_role = DB::table('portal_role')->where('id', $user->portal_role_id)->first();
 
@@ -47,8 +66,53 @@ class UsersController extends Controller
             'portal_role' => $portal_role->role_name ?? null,
         ];
 
-        return $this->set_response($data, 200, 'success', ['User and role data']);
+        return $this->set_response($data, 200, 'success', ['Single user data']);
     }
+
+    // 🔹 Fetch all users
+    $users = DB::table('users')->get();
+
+    // 🔹 Loop through users to attach role, app, and portal info
+    foreach ($users as $user) {
+        // Roles assigned to user
+        $roles = DB::table('model_has_roles')
+            ->join('roles', 'model_has_roles.role_id', '=', 'roles.id')
+            ->where('model_has_roles.model_type', 'App\Models\User')
+            ->where('model_has_roles.model_id', $user->id)
+            ->pluck('roles.name')
+            ->toArray();
+
+        // Role info (id, name, permissions)
+        $role_info = DB::table('roles')
+            ->leftJoin('role_has_permissions', 'roles.id', '=', 'role_has_permissions.role_id')
+            ->leftJoin('permissions', 'role_has_permissions.permission_id', '=', 'permissions.id')
+            ->whereIn('roles.name', $roles)
+            ->select(
+                'roles.id as role_id',
+                'roles.name as role_name',
+                DB::raw('GROUP_CONCAT(permissions.name) as permissions')
+            )
+            ->groupBy('roles.id', 'roles.name')
+            ->get();
+
+        // Attach details to user object
+        $user->roles = $roles;
+        $user->role_info = $role_info;
+
+        // Application and portal role (optional)
+        $app = DB::table('application')->where('id', $user->app_id)->first();
+        $portal_role = DB::table('portal_role')->where('id', $user->portal_role_id)->first();
+
+        $user->app_name = $app->name ?? null;
+        $user->portal_role = $portal_role->role_name ?? null;
+    }
+
+    // 🔹 Return unified structure
+    return $this->set_response($users, 200, 'success', ['All users list']);
+}
+
+
+
 
     // Get all users
     public function getAllUsers(Request $request)

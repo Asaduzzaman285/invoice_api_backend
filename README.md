@@ -514,3 +514,13 @@ Password: paSSSss1$23!!
 Database: winedsco_invoice
 
 This guide ensures you can reuse it next time without repeating commands or troubleshooting PHP version issues.
+
+
+
+-- Assign 'user' role (id = 2) to User1 (id = 1)
+INSERT INTO model_has_roles (role_id, model_type, model_id)
+VALUES (2, 'App\\Models\\User', 1);
+
+-- Assign 'admin' role (id = 1) to Asaduzzaman Asad (id = 2)
+INSERT INTO model_has_roles (role_id, model_type, model_id)
+VALUES (1, 'App\\Models\\User', 2);

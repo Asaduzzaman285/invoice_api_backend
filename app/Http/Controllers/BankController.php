@@ -15,9 +15,20 @@ class BankController extends Controller
     }
 
     // Read all
-    public function index() {
-        $banks = DB::select('SELECT * FROM bank');
-        return response()->json($banks);
+    public function index()
+    {
+    $banks = DB::select('
+        SELECT
+            b.id,
+            b.bank_name,
+            GROUP_CONCAT(ba.branch_name SEPARATOR ", ") AS branch_names
+        FROM bank b
+        LEFT JOIN bank_account ba ON b.id = ba.bank_id
+        GROUP BY b.id, b.bank_name
+        ORDER BY b.id ASC
+    ');
+
+    return response()->json($banks);
     }
 
     // Read single
