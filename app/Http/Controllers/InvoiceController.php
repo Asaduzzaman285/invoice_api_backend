@@ -8,18 +8,31 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
 use App\Http\Requests\StoreInvoiceRequest;
 use App\Http\Requests\UpdateInvoiceRequest;
-class Invoice2Controller extends Controller
+
+class InvoiceController extends Controller
 {
-    /**
-     * Fetch support data (clients)
-     */
-    public function getsupportdata(Request $request)
+    public function getSmsQuantity(Request $request)
     {
         try {
-            $senderUrl = env('SENDER_API_URL', 'http://localhost:82/api/support-data');
+            $validated = $request->validate([
+                'client_id' => 'required|string',
+                'start_time' => 'required|date',
+                'end_time' => 'required|date',
+                'description' => 'required|string'
+            ]);
+
+            // Build full URL safely
+            $baseUrl = rtrim(env('SENDER_API_URL', 'http://localhost:82/api'), '/');
+            $senderUrl = "{$baseUrl}/calculate-sms-quantity";
             $apiKey = env('SENDER_API_KEY', 'asad1947!52!71!24');
 
-            Log::info('Fetching support data via GET', ['url' => $senderUrl]);
+            Log::info('Calculating SMS quantity via Sender', [
+                'url' => $senderUrl,
+                'client_id' => $request->client_id,
+                'start_time' => $request->start_time,
+                'end_time' => $request->end_time,
+                'description' => $request->description
+            ]);
 
             $response = Http::withHeaders([
                 'X-API-KEY' => $apiKey,
@@ -27,7 +40,74 @@ class Invoice2Controller extends Controller
                 'Content-Type' => 'application/json',
             ])
             ->timeout(30)
-            ->get($senderUrl);
+            ->post($senderUrl, $request->all());
+
+            if ($response->successful()) {
+                $data = $response->json();
+
+                if (isset($data['status']) && $data['status'] === 'success') {
+                    return response()->json([
+                        'status' => 'success',
+                        'sms_quantity' => $data['sms_quantity'],
+                        'client_id' => $data['client_id'],
+                        'start_time' => $data['start_time'],
+                        'end_time' => $data['end_time'],
+                        'description' => $data['description']
+                    ]);
+                }
+            }
+
+            Log::warning('SMS quantity calculation failed, returning 0 as fallback');
+            return response()->json([
+                'status' => 'success',
+                'sms_quantity' => 0,
+                'client_id' => $request->client_id,
+                'start_time' => $request->start_time,
+                'end_time' => $request->end_time,
+                'description' => $request->description,
+                'note' => 'Using fallback value'
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('SMS Quantity Calculation Error: ' . $e->getMessage());
+            return response()->json([
+                'status' => 'success',
+                'sms_quantity' => 0,
+                'client_id' => $request->client_id,
+                'start_time' => $request->start_time,
+                'end_time' => $request->end_time,
+                'description' => $request->description,
+                'note' => 'Error occurred, using fallback'
+            ]);
+        }
+    }
+
+    public function getsupportdata(Request $request)
+    {
+        try {
+            $startTime = $request->input('start_time');
+            $endTime = $request->input('end_time');
+
+            $baseUrl = rtrim(env('SENDER_API_URL', 'http://localhost:82/api'), '/');
+            $senderUrl = "{$baseUrl}/support-data";
+            $apiKey = env('SENDER_API_KEY', 'asad1947!52!71!24');
+
+            $queryParams = [];
+            if ($startTime) $queryParams['start_time'] = $startTime;
+            if ($endTime) $queryParams['end_time'] = $endTime;
+
+            Log::info('Fetching support data via GET', [
+                'url' => $senderUrl,
+                'params' => $queryParams
+            ]);
+
+            $response = Http::withHeaders([
+                'X-API-KEY' => $apiKey,
+                'Accept' => 'application/json',
+                'Content-Type' => 'application/json',
+            ])
+            ->timeout(30)
+            ->get($senderUrl, $queryParams);
 
             if ($response->successful()) {
                 $data = $response->json();
@@ -55,12 +135,12 @@ class Invoice2Controller extends Controller
     }
 
     /**
-     * Get all invoices with details
+     * Get all invoices with details with optional filtering
      */
-    public function index()
+    public function index(Request $request)
     {
         try {
-            $invoices = DB::table('invoice as i')
+            $query = DB::table('invoice as i')
                 ->leftJoin('bank_account as b', 'b.id', '=', 'i.pmnt_rcv_acc_id')
                 ->select(
                     'i.*',
@@ -68,9 +148,26 @@ class Invoice2Controller extends Controller
                     'b.branch_name as bank_branch',
                     'b.routing_number as bank_routing_number',
                     'b.account_number as bank_account_number'
-                )
-                ->orderByDesc('i.id')
-                ->get();
+                );
+
+            // Apply filters if provided
+            if ($request->has('invoice_number') && !empty($request->invoice_number)) {
+                $query->where('i.invoice_number', 'like', '%' . $request->invoice_number . '%');
+            }
+
+            if ($request->has('client_name') && !empty($request->client_name)) {
+                $query->where('i.client_name', 'like', '%' . $request->client_name . '%');
+            }
+
+            if ($request->has('date_from') && !empty($request->date_from)) {
+                $query->where('i.billing_date', '>=', $request->date_from);
+            }
+
+            if ($request->has('date_to') && !empty($request->date_to)) {
+                $query->where('i.billing_date', '<=', $request->date_to);
+            }
+
+            $invoices = $query->orderByDesc('i.id')->get();
 
             return response()->json([
                 'status' => 'success',
@@ -86,18 +183,49 @@ class Invoice2Controller extends Controller
     }
 
     /**
+     * Get filter options for dropdowns (invoice numbers and client names)
+     */
+    public function getFilterOptions()
+    {
+        try {
+            $invoiceNumbers = DB::table('invoice')
+                ->select('invoice_number')
+                ->distinct()
+                ->orderBy('invoice_number')
+                ->pluck('invoice_number');
+
+            $clientNames = DB::table('invoice')
+                ->select('client_name')
+                ->distinct()
+                ->orderBy('client_name')
+                ->pluck('client_name');
+
+            return response()->json([
+                'status' => 'success',
+                'invoice_numbers' =>  $invoiceNumbers,
+                'client_names' => $clientNames
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Filter Options Error: ' . $e->getMessage());
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to fetch filter options'
+            ], 500);
+        }
+    }
+
+    /**
      * Create invoice with invoice_details in single transaction
      * Master-Detail pattern
      */
     public function store(StoreInvoiceRequest $request)
     {
-        // Remove timestamps from validation since table doesn't have them
-       $validated = $request->validated();
+        $validated = $request->validated();
 
         DB::beginTransaction();
 
         try {
-            // Create invoice master record - WITHOUT timestamps
+            // Create invoice master record
             $invoiceId = DB::table('invoice')->insertGetId([
                 'client_id' => $request->client_id,
                 'invoice_number' => $request->invoice_number,
@@ -116,10 +244,9 @@ class Invoice2Controller extends Controller
                 'pmnt_rcv_acc' => $request->pmnt_rcv_acc,
                 'pmnt_rcv_branch' => $request->pmnt_rcv_branch,
                 'pmnt_rcv_rn' => $request->pmnt_rcv_rn,
-
             ]);
 
-            // Create invoice detail records - WITHOUT timestamps
+            // Create invoice detail records with time frames
             if (isset($request->invoice_details) && is_array($request->invoice_details)) {
                 foreach ($request->invoice_details as $detail) {
                     DB::table('invoice_details')->insert([
@@ -127,9 +254,9 @@ class Invoice2Controller extends Controller
                         'description' => $detail['description'],
                         'sms_qty' => $detail['sms_qty'],
                         'unit_price' => $detail['unit_price'],
+                        'start_time' => $detail['start_time'] ?? null,
+                        'end_time' => $detail['end_time'] ?? null,
                         'total' => $detail['total'],
-                        // REMOVED: 'created_at' => now(),
-                        // REMOVED: 'updated_at' => now(),
                     ]);
                 }
             }
@@ -175,63 +302,62 @@ class Invoice2Controller extends Controller
     /**
      * Show single invoice with details
      */
-     public function show($id)
-{
-    try {
-        $invoice = DB::table('invoice as i')
-            ->leftJoin('bank_account as b', 'b.id', '=', 'i.pmnt_rcv_acc_id')
-            ->select(
-                'i.*',
-                'b.account_name as bank_account_name',
-                'b.branch_name as bank_branch',
-                'b.routing_number as bank_routing_number',
-                'b.account_number as bank_account_number'
-            )
-            ->where('i.id', $id)
-            ->first();
+    public function show($id)
+    {
+        try {
+            $invoice = DB::table('invoice as i')
+                ->leftJoin('bank_account as b', 'b.id', '=', 'i.pmnt_rcv_acc_id')
+                ->select(
+                    'i.*',
+                    'b.account_name as bank_account_name',
+                    'b.branch_name as bank_branch',
+                    'b.routing_number as bank_routing_number',
+                    'b.account_number as bank_account_number'
+                )
+                ->where('i.id', $id)
+                ->first();
 
-        if (!$invoice) {
+            if (!$invoice) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Invoice not found'
+                ], 404);
+            }
+
+            // Get invoice details
+            $details = DB::table('invoice_details')
+                ->where('invoice_id', $id)
+                ->orderBy('id')
+                ->get();
+
+            // Attach details directly to invoice object
+            $invoice->details = $details;
+
+            return response()->json([
+                'status' => 'success',
+                'invoice' => $invoice,
+                'details' => $details
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Invoice Show Error: ' . $e->getMessage());
             return response()->json([
                 'status' => 'error',
-                'message' => 'Invoice not found'
-            ], 404);
+                'message' => 'Failed to fetch invoice'
+            ], 500);
         }
-
-        // Get invoice details
-        $details = DB::table('invoice_details')
-            ->where('invoice_id', $id)
-            ->orderBy('id')
-            ->get();
-
-        // Attach details directly to invoice object
-        $invoice->details = $details;
-
-        return response()->json([
-            'status' => 'success',
-            'invoice' => $invoice,
-            'details' => $details  // Also available separately
-        ]);
-
-    } catch (\Exception $e) {
-        Log::error('Invoice Show Error: ' . $e->getMessage());
-        return response()->json([
-            'status' => 'error',
-            'message' => 'Failed to fetch invoice'
-        ], 500);
     }
-}
 
     /**
-     * Update invoice with details
+     * Update invoice
      */
-    public function update (UpdateInvoiceRequest $request, $id)
+    public function update(UpdateInvoiceRequest $request, $id)
     {
-       $validated = $request->validated();
+        $validated = $request->validated();
 
         DB::beginTransaction();
 
         try {
-            // Check if invoice exists
             $invoice = DB::table('invoice')->where('id', $id)->first();
             if (!$invoice) {
                 return response()->json([
@@ -240,7 +366,7 @@ class Invoice2Controller extends Controller
                 ], 404);
             }
 
-            // Update invoice master record - WITHOUT updated_at
+            // Update invoice master record
             DB::table('invoice')->where('id', $id)->update([
                 'client_id' => $request->client_id,
                 'invoice_number' => $request->invoice_number,
@@ -259,13 +385,11 @@ class Invoice2Controller extends Controller
                 'pmnt_rcv_acc' => $request->pmnt_rcv_acc,
                 'pmnt_rcv_branch' => $request->pmnt_rcv_branch,
                 'pmnt_rcv_rn' => $request->pmnt_rcv_rn,
-                // REMOVED: 'updated_at' => now(),
             ]);
 
-            // Delete existing invoice details
+            // Delete existing details and insert new ones
             DB::table('invoice_details')->where('invoice_id', $id)->delete();
 
-            // Insert new invoice details - WITHOUT timestamps
             if (isset($request->invoice_details) && is_array($request->invoice_details)) {
                 foreach ($request->invoice_details as $detail) {
                     DB::table('invoice_details')->insert([
@@ -273,9 +397,9 @@ class Invoice2Controller extends Controller
                         'description' => $detail['description'],
                         'sms_qty' => $detail['sms_qty'],
                         'unit_price' => $detail['unit_price'],
+                        'start_time' => $detail['start_time'] ?? null,
+                        'end_time' => $detail['end_time'] ?? null,
                         'total' => $detail['total'],
-                        // REMOVED: 'created_at' => now(),
-                        // REMOVED: 'updated_at' => now(),
                     ]);
                 }
             }
